@@ -1,0 +1,41 @@
+name: CF ProxyIP Daily Scan & DNS Sync
+
+on:
+  schedule:
+    # 北京时间每天 05:00 = UTC 21:00
+    - cron: '0 21 * * *'
+  workflow_dispatch:      # 支持在 Actions 页面手动触发
+
+jobs:
+  scan-and-sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # 允许回写 ips-v4.txt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run scan & sync
+        env:
+          # 全部 Secrets 注入，代码里不出现任何密钥/URL
+          CF_CHECK_URL: ${{ secrets.CF_CHECK_URL }}      # 测速接口，如 https://xxx.workers.dev/check?proxyip={ip}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}      # 受限 Token（Zone.DNS:Edit）
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_TARGET_DOMAIN: ${{ secrets.CF_TARGET_DOMAIN }}   # 你的主域名
+          SYNC_BATCH: '50'
+          SYNC_TARGET: '3'
+          SYNC_WORKERS: '60'
+          SYNC_TIMEOUT: '10'
+        run: python cf_proxyip_sync.py --batch "$SYNC_BATCH" --target "$SYNC_TARGET" --workers "$SYNC_WORKERS" --timeout "$SYNC_TIMEOUT"
+
+      - name: Commit updated IP list
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add ips-v4.txt
+          git diff --quiet && git diff --staged --quiet || (git commit -m "docs: 自动更新优选 ProxyIP [skip ci]" && git push)
